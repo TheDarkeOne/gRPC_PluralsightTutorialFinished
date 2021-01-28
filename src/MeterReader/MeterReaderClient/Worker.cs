@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
+using Grpc.Core;
 using Grpc.Net.Client;
 using MeterReaderWeb.Services;
 using Microsoft.Extensions.Configuration;
@@ -17,13 +18,15 @@ namespace MeterReaderClient
         private readonly ILogger<Worker> _logger;
         private readonly IConfiguration config;
         private readonly ReadingFactory factory;
+        private readonly ILoggerFactory loggerFactory;
         private MeterReadingService.MeterReadingServiceClient client = null;
 
-        public Worker(ILogger<Worker> logger, IConfiguration config, ReadingFactory factory)
+        public Worker(ILogger<Worker> logger, IConfiguration config, ReadingFactory factory, ILoggerFactory loggerFactory)
         {
             _logger = logger;
             this.config = config;
             this.factory = factory ?? throw new ArgumentNullException(nameof(factory));
+            this.loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
         }
 
         protected MeterReadingService.MeterReadingServiceClient Client 
@@ -32,7 +35,11 @@ namespace MeterReaderClient
             {
                 if (client == null) 
                 {
-                    var channel = GrpcChannel.ForAddress(config.GetValue<string>("Service:ServerUrl"));
+                    var opts = new GrpcChannelOptions()
+                    {
+                        LoggerFactory = loggerFactory
+                    };
+                    var channel = GrpcChannel.ForAddress(config.GetValue<string>("Service:ServerUrl"), opts);
                     client = new MeterReadingService.MeterReadingServiceClient(channel);
                 }
 
@@ -42,11 +49,29 @@ namespace MeterReaderClient
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            var counter = 0;
+
+            var customerId = config.GetValue<int>("Service:CustomerId");
+            
             while (!stoppingToken.IsCancellationRequested)
             {
+                counter++;
+
+                if (counter % 10 == 0) 
+                {
+                    Console.Write("Sending Diagnostics");
+                    var stream = Client.SendDiagnostics();
+                    for (var x = 0; x < 5; x++) 
+                    {
+                        var reading = await factory.Generate(customerId);
+                        await stream.RequestStream.WriteAsync(reading);
+                    }
+
+                    await stream.RequestStream.CompleteAsync();
+                }
+
                 _logger.LogInformation("Worker running at: {time}", DateTimeOffset.Now);
 
-                var customerId = config.GetValue<int>("Service:CustomerId");
 
                 var pkt = new ReadingPacket()
                 {
@@ -59,6 +84,8 @@ namespace MeterReaderClient
                     pkt.Readings.Add(await factory.Generate(customerId));
                 }
 
+                try {
+
                 var result = await Client.AddReadingAsync(pkt);
                 if (result.Success == ReadingStatus.Success)
                 {
@@ -68,7 +95,15 @@ namespace MeterReaderClient
                 {
                     _logger.LogInformation("Failed to Send");
                 }
-
+                }
+                catch (RpcException ex) 
+                {
+                    if (ex.StatusCode == StatusCode.OutOfRange) 
+                    {
+                        _logger.LogError($"{ex.Trailers}");
+                    }
+                    _logger.LogError($"Exception Thrown: {ex}");
+                }
                 await Task.Delay(config.GetValue<int>("Service:DelayInterval"), stoppingToken);
             }
         }
