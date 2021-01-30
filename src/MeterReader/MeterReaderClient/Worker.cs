@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Protobuf.WellKnownTypes;
@@ -38,8 +40,16 @@ namespace MeterReaderClient
             {
                 if (client == null) 
                 {
+                    var cert = new X509Certificate2(config["Service:CertFilename"], config["Service:CertPassword"]);
+
+                    var handler = new HttpClientHandler();
+                    handler.ClientCertificates.Add(cert);
+
+                    var Httpclient = new HttpClient(handler);
+
                     var opts = new GrpcChannelOptions()
                     {
+                        HttpClient = Httpclient,
                         LoggerFactory = loggerFactory
                     };
                     var channel = GrpcChannel.ForAddress(config.GetValue<string>("Service:ServerUrl"), opts);
@@ -54,13 +64,13 @@ namespace MeterReaderClient
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            //var counter = 0;
+            var counter = 0;
 
             var customerId = config.GetValue<int>("Service:CustomerId");
             
             while (!stoppingToken.IsCancellationRequested)
             {
-                /*counter++;
+                counter++;
 
                 if (counter % 10 == 0) 
                 {
@@ -73,7 +83,7 @@ namespace MeterReaderClient
                     }
 
                     await stream.RequestStream.CompleteAsync();
-                }*/
+                }
 
                 _logger.LogInformation("Worker running at: {time}", DateTimeOffset.Now);
 
@@ -91,12 +101,7 @@ namespace MeterReaderClient
 
                 try
                 {
-                    if (!NeedsLogin() || await GenerateToken())
-                    {
-                        var headers = new Metadata();
-                        headers.Add("Authorization", $"Bearer {token}");
-
-                        var result = await Client.AddReadingAsync(pkt, headers: headers);
+                        var result = await Client.AddReadingAsync(pkt);
                         if (result.Success == ReadingStatus.Success)
                         {
                             _logger.LogInformation("Successfully Sent");
@@ -105,7 +110,7 @@ namespace MeterReaderClient
                         {
                             _logger.LogInformation("Failed to Send");
                         }
-                    }
+                    
                 }
                 catch (RpcException ex) 
                 {
