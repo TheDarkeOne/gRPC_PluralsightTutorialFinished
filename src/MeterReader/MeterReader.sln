@@ -13,6 +13,11 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Clients", "Clients", "{556B
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MeterReaderClient", "MeterReaderClient\MeterReaderClient.csproj", "{6444B796-FC83-42DB-9EA7-9F898194001C}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{7FA12682-2F34-479C-B079-352BCA94DED9}"
+	ProjectSection(SolutionItems) = preProject
+		..\makecerts.ps1 = ..\makecerts.ps1
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU

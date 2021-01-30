@@ -1,7 +1,11 @@
 ﻿using Google.Protobuf.WellKnownTypes;
 using Grpc.Core;
+using MeterReaderLib;
+using MeterReaderLib.Models;
 using MeterReaderWeb.Data;
 using MeterReaderWeb.Data.Entities;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -10,15 +14,44 @@ using System.Threading.Tasks;
 
 namespace MeterReaderWeb.Services
 {
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public class MeterService : MeterReadingService.MeterReadingServiceBase
     {
         private readonly ILogger<MeterService> logger;
         private readonly IReadingRepository repository;
+        private readonly JwtTokenValidationService tokenService;
 
-        public MeterService(ILogger<MeterService> logger, IReadingRepository repository)
+        public MeterService(ILogger<MeterService> logger, IReadingRepository repository, JwtTokenValidationService tokenService)
         {
             this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
             this.repository = repository ?? throw new ArgumentNullException(nameof(repository));
+            this.tokenService = tokenService ?? throw new ArgumentNullException(nameof(tokenService));
+        }
+
+        [AllowAnonymous]
+        public override async Task<TokenResponse> CreateToken(TokenRequest request, ServerCallContext context)
+        {
+            var credentials = new CredentialModel()
+            {
+                UserName = request.Username,
+                Passcode = request.Password
+            };
+            var response = await tokenService.GenerateTokenModelAsync(credentials);
+
+            if (response.Success) 
+            {
+                return new TokenResponse()
+                {
+                    Token = response.Token,
+                    Expiration = Timestamp.FromDateTime(response.Expiration),
+                    Success = true
+                };
+            }
+
+            return new TokenResponse()
+            {
+                Success = false
+            };
         }
 
         public async override Task<Empty> SendDiagnostics(IAsyncStreamReader<ReadingMessage> requestStream, ServerCallContext context)
